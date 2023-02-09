@@ -1,0 +1,78 @@
+image: node:latest # (1)
+
+stages:
+  - build
+  - test
+  - docker-deploy-image
+  - aws-deploy-staging
+  - aws-deploy-production
+
+cache:
+  key:
+      files:
+        - yarn.lock  
+  paths:
+    - node_modules/ 
+
+install_dependencies:
+  stage: build
+  cache:
+    key:
+      files:
+        - yarn.lock
+    paths:
+      - node_modules/
+  script:
+    - npm install
+  artifacts:
+    paths:
+      - node_modules/
+
+testing:
+  stage: test
+  cache:
+    key:
+      files:
+        - yarn.lock
+    paths:
+      - node_modules/
+    policy: pull  
+  script: npm test
+
+docker-deploy-image:
+  before_script:
+    # to skip default before_script, cache docker images
+    - docker info
+    - echo "$DOCKER_PASS" | docker login --username "$DOCKER_USER" --password-stdin 
+  stage: docker-deploy-image
+  cache: {}
+  image: docker:dind
+  services:
+    - docker:dind
+  script:
+    - docker pull jobthebhubdocker/ci-for-node || true
+    - docker build 
+      --cache-from jobthebhubdocker/ci-for-node
+      -t jobthebhubdocker/ci-for-node .
+    - docker push jobthebhubdocker/ci-for-node
+
+aws-deploy-staging:
+  image: 'python:latest'
+  stage: aws-deploy-staging
+  before_script:
+    - 'pip install awsebcli --upgrade' # (6)
+  script:
+    - eb deploy tausi-app-dev-env
+  only:
+    - pipeline
+
+
+aws-deploy-production:
+  image: 'python:latest'
+  stage: aws-deploy-production
+  before_script:
+    - 'pip install awsebcli --upgrade' # (6)
+  script:
+    - eb deploy tausi-app-production-env 
+  only:
+    - main     
